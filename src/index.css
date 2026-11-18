@@ -603,6 +603,38 @@ img {
   font-size: 68px;
 }
 
+/* Product card visual container with color themes */
+.product-visual {
+  position: relative;
+  height: 190px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-size: 68px;
+  background: radial-gradient(circle at 50% 25%, rgba(255,255,255,0.85), transparent 38%), #edf8f0;
+}
+
+.product-visual .product-icon {
+  height: 100%;
+  background: transparent;
+}
+
+.product-visual.blue   { background: radial-gradient(circle at 50% 25%, rgba(255,255,255,0.85), transparent 38%), #eff6ff; }
+.product-visual.purple { background: radial-gradient(circle at 50% 25%, rgba(255,255,255,0.85), transparent 38%), #f5f3ff; }
+.product-visual.green  { background: radial-gradient(circle at 50% 25%, rgba(255,255,255,0.85), transparent 38%), #f0fdf4; }
+.product-visual.orange { background: radial-gradient(circle at 50% 25%, rgba(255,255,255,0.85), transparent 38%), #fff7ed; }
+.product-visual.pink   { background: radial-gradient(circle at 50% 25%, rgba(255,255,255,0.85), transparent 38%), #fdf2f8; }
+.product-visual.indigo { background: radial-gradient(circle at 50% 25%, rgba(255,255,255,0.85), transparent 38%), #eef2ff; }
+
+/* Also apply color theme to mini-product-icon inside chat */
+.mini-product-icon.blue   { background: #dbeafe; }
+.mini-product-icon.purple { background: #ede9fe; }
+.mini-product-icon.green  { background: #dcfce7; }
+.mini-product-icon.orange { background: #ffedd5; }
+.mini-product-icon.pink   { background: #fce7f3; }
+.mini-product-icon.indigo { background: #e0e7ff; }
+
+
 .product-content {
   display: flex;
   flex: 1;
@@ -632,9 +664,12 @@ img {
 }
 
 .product-meta {
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .product-meta > span {
@@ -643,10 +678,21 @@ img {
 }
 
 .condition-tag {
-  padding: 5px 8px;
+  position: absolute;
+  top: 11px;
+  left: 11px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
   color: #166534;
-  background: #ecfdf3;
+  background: rgba(236, 253, 243, 0.95);
+  font-size: 10px;
+  font-weight: 800;
+  backdrop-filter: blur(4px);
 }
+
 
 .product-bottom {
   justify-content: space-between;
@@ -717,7 +763,7 @@ img {
   margin: 0 auto 25px;
   padding: 0 24px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 14px;
 }
 
@@ -823,7 +869,8 @@ img {
 }
 
 /* ---------- MODALS ---------- */
-.modal-overlay {
+.modal-overlay,
+.modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 300;
@@ -871,8 +918,17 @@ img {
 }
 
 .modal-detail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 13px 0;
   border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.modal-detail svg {
+  flex-shrink: 0;
+  color: var(--primary);
 }
 
 .modal-action {
@@ -884,6 +940,23 @@ img {
 .product-modal {
   position: relative;
   padding: 28px;
+}
+
+.product-modal .modal-content {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  overflow: visible;
+  max-height: none;
+  background: transparent;
+}
+
+.product-modal .product-visual {
+  height: 230px;
+  border-radius: 18px;
+  margin-bottom: 22px;
 }
 
 .product-modal .product-icon {
@@ -1962,7 +2035,7 @@ footer .brand {
   }
 
   .stats-strip {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .section-heading {
@@ -2243,3 +2316,294 @@ footer .brand {
 .persistent-message-list{flex:1;overflow:auto;padding:20px;background:#f8fbf9;display:flex;flex-direction:column;gap:12px}.persistent-message{align-self:flex-start;max-width:min(75%,520px);background:#fff;border:1px solid #e4ece7;border-radius:15px 15px 15px 4px;padding:11px 14px;box-shadow:0 2px 8px rgba(20,50,35,.04)}.persistent-message.mine{align-self:flex-end;background:#e5f5eb;border-color:#d2eadb;border-radius:15px 15px 4px 15px}.persistent-message p{margin:0;color:#294236;white-space:pre-wrap;overflow-wrap:anywhere}.persistent-message time{display:block;text-align:right;color:#829188;font-size:10px;margin-top:6px}.persistent-offer{align-self:flex-start;max-width:85%;padding:13px 15px;border:1px solid #dcebe2;background:#fff;border-radius:14px;display:flex;flex-direction:column;gap:6px}.persistent-offer.mine{align-self:flex-end;background:#f0f8f3}.persistent-offer strong{color:#1e684b}.persistent-offer small{color:#718278}.offer-controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:5px}.offer-controls button,.offer-composer button{border:0;border-radius:9px;padding:8px 11px;background:#16845a;color:white;font-weight:700;cursor:pointer}.offer-controls button.decline{background:#fff0ef;color:#b43c35}.offer-controls input{width:105px;border:1px solid #d9e4dd;border-radius:8px;padding:8px}.deal-finalized{padding:13px;border-radius:12px;background:#e8f7ee;color:#176b4d;font-weight:700;text-align:center}
 .messages-composer,.offer-composer{display:flex;gap:9px;padding:12px 16px;border-top:1px solid #edf1ef}.messages-composer input,.offer-composer input{min-width:0;flex:1;border:1px solid #dce6df;border-radius:11px;padding:12px 13px;outline-color:#16845a}.messages-composer button{display:flex;align-items:center;gap:7px;border:0;border-radius:11px;background:#16845a;color:#fff;padding:0 17px;font-weight:700;cursor:pointer}.offer-composer{align-items:center;padding-top:9px;padding-bottom:14px}.offer-composer span{font-size:12px;color:#61746a;font-weight:700;white-space:nowrap}.offer-composer input{flex:0 1 190px;padding:9px 11px}.messages-placeholder{margin:auto;text-align:center;color:#8aa095;max-width:320px;padding:25px}.messages-placeholder h3{color:#294236;margin-bottom:5px}.messages-placeholder p,.messages-empty{font-size:13px;line-height:1.6;color:#829188;padding:16px}.messages-error{margin:10px 18px 0;padding:10px 13px;background:#fff1f0;color:#a8322b;border-radius:9px;font-size:13px}
 @media(max-width:700px){.messages-overlay{padding:0}.messages-center{height:100vh;border-radius:0}.messages-layout{grid-template-columns:1fr;grid-template-rows:190px 1fr}.messages-inbox{border-right:0;border-bottom:1px solid #e8efeb}.conversation-item{padding:9px 13px}.conversation-avatar{width:34px;height:34px}.messages-topbar{padding:14px 17px}.messages-composer,.offer-composer{padding:9px}.offer-composer{flex-wrap:wrap}.offer-composer span{width:100%}.persistent-message{max-width:90%}}
+
+/* ---------- NOTICES & ALERTS ---------- */
+.alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  margin: 12px auto;
+  max-width: var(--container);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  z-index: 50;
+}
+
+.alert button {
+  display: inline-flex;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.alert.error {
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.alert.success,
+.alert.info {
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.demo-banner {
+  background: #fefce8;
+  border-bottom: 1px solid #fef08a;
+  color: #854d0e;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+
+
+/* ==========================================
+   PHASE 2 ADDITIONS — Footer, Orders, Polish
+   ========================================== */
+
+/* Footer navigation links */
+.footer-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 800px;
+  margin-bottom: 12px;
+}
+
+.footer-links {
+  display: flex;
+  gap: 20px;
+}
+
+.footer-links a {
+  color: #94a3b8;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.footer-links a:hover {
+  color: #16a34a;
+}
+
+@media (max-width: 600px) {
+  .footer-top {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .footer-links {
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+/* Smooth transitions for modals */
+.modal-overlay,
+.messages-overlay {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.product-modal,
+.chat-modal,
+.auth-modal,
+.payment-card,
+.messages-center {
+  animation: slideUp 0.25s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Better hover effects on product cards */
+.product-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.product-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+}
+
+/* Improved button press feedback */
+.primary-button:active,
+.secondary-button:active,
+.send-offer-button:active,
+.accept-button:active {
+  transform: scale(0.97);
+}
+
+/* Like button animation */
+.like-button {
+  transition: transform 0.15s ease;
+}
+
+.like-button:active {
+  transform: scale(1.25);
+}
+
+/* Navbar improvements */
+.navbar {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Category pill active state improvement */
+.category.active {
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.25);
+}
+
+/* Empty state styling */
+.empty-state {
+  text-align: center;
+  padding: 48px 20px;
+  color: #64748b;
+  font-size: 14px;
+  background: #f8fafc;
+  border-radius: 16px;
+  border: 1px dashed #e2e8f0;
+}
+
+/* Search box focus state */
+.search-box:focus-within {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
+}
+
+/* Step card hover */
+.step {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.step:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
+}
+
+/* Scrollbar styling for modals */
+.messages-chat::-webkit-scrollbar,
+.persistent-message-list::-webkit-scrollbar,
+.messages-inbox::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-chat::-webkit-scrollbar-thumb,
+.persistent-message-list::-webkit-scrollbar-thumb,
+.messages-inbox::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.messages-chat::-webkit-scrollbar-track,
+.persistent-message-list::-webkit-scrollbar-track,
+.messages-inbox::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Modal action button full-width fix */
+.modal-action {
+  width: 100%;
+  justify-content: center;
+}
+
+/* Admin action button danger variant */
+.admin-action-button.danger {
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.admin-action-button.danger:hover {
+  background: #fef2f2;
+}
+
+/* Accessibility: focus visible outlines */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #16a34a;
+  outline-offset: 2px;
+}
+
+/* Skip to content link for accessibility */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 1000;
+  padding: 8px 16px;
+  background: #16a34a;
+  color: #fff;
+  border-radius: 0 0 8px 0;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.skip-link:focus {
+  left: 0;
+  top: 0;
+}
+
+/* Sort dropdown styling */
+.sort-box {
+  flex-shrink: 0;
+}
+
+.sort-select {
+  min-height: 50px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: white;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sort-select:hover,
+.sort-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
+}
+
+@media (max-width: 768px) {
+  .sort-box {
+    width: 100%;
+  }
+  .sort-select {
+    width: 100%;
+  }
+}

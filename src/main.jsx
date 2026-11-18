@@ -1,5 +1,5 @@
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Search,
@@ -26,17 +26,18 @@ import {
   Clock,
   ChevronLeft,
   LayoutDashboard,
- Users,
- ShoppingBag,
-CreditCard,
-AlertTriangle,
-BarChart3,
-Settings,
-Trash2,
-Eye
+  Users,
+  ShoppingBag,
+  CreditCard,
+  AlertTriangle,
+  BarChart3,
+  Trash2,
+  Eye,
+  LogOut,
+  ShoppingCart
 } from 'lucide-react';
 import './index.css';
-import { supabase } from './lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 
 const demoProducts = [
   {
@@ -159,11 +160,27 @@ const initialMessages = [
 ];
 
 function formatPrice(value) {
-  return `₹${Number(value).toLocaleString('en-IN')}`;
+  const num = Number(value);
+  const safe = Number.isFinite(num) ? num : 0;
+  return `₹${safe.toLocaleString('en-IN')}`;
+}
+
+/** Sanitize user-generated text to prevent XSS via innerHTML (though React escapes by default, this guards any future use). */
+function sanitizeText(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/[<>"'&]/g, c => ({ '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":"&#39;", '&':'&amp;' }[c]));
+}
+
+/** Clamp a value between min and max */
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function AdminDashboard({ onBack }) {
   const [activeTab, setActiveTab] = useState('overview');
+  const [viewingDispute, setViewingDispute] = useState(false);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [realOrders, setRealOrders] = useState([]);
 
   const [users, setUsers] = useState([
     { id: 1, name: 'Rahul Sharma', email: 'rahul@example.com', status: 'Active' },
@@ -177,7 +194,52 @@ function AdminDashboard({ onBack }) {
     { id: 3, name: 'Dell Monitor', seller: 'Neha Mehta', status: 'Approved' }
   ]);
 
-  const blockUser = (id) => {
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const fetchAdminData = async () => {
+      setAdminLoading(true);
+      try {
+        const [{ data: profs }, { data: prods }, { data: ords }] = await Promise.all([
+          supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+          supabase.from('products').select('*, profiles(full_name)').order('created_at', { ascending: false }),
+          supabase.from('orders').select('*, products(title)').order('created_at', { ascending: false }),
+        ]);
+        if (profs && profs.length > 0) {
+          setUsers(profs.map(p => ({
+            id: p.id,
+            name: p.full_name || 'Member',
+            email: p.email || 'No email',
+            status: p.status === 'blocked' ? 'Blocked' : 'Active',
+            role: p.role,
+          })));
+        }
+        if (prods && prods.length > 0) {
+          setListings(prods.map(pr => ({
+            id: pr.id,
+            name: pr.title,
+            seller: pr.profiles?.full_name || 'Seller',
+            status: pr.status === 'available' ? 'Approved' : pr.status,
+            price: pr.price,
+          })));
+        }
+        if (ords) {
+          setRealOrders(ords);
+        }
+      } catch (err) {
+        console.warn('Admin live data notice:', err);
+      } finally {
+        setAdminLoading(false);
+      }
+    };
+    fetchAdminData();
+  }, []);
+
+  const blockUser = async (id) => {
+    const target = users.find(u => u.id === id);
+    const newStatus = target?.status === 'Blocked' ? 'active' : 'blocked';
+    if (isSupabaseConfigured) {
+      await supabase.from('profiles').update({ status: newStatus }).eq('id', id);
+    }
     setUsers((currentUsers) =>
       currentUsers.map((user) =>
         user.id === id
@@ -190,7 +252,10 @@ function AdminDashboard({ onBack }) {
     );
   };
 
-  const approveListing = (id) => {
+  const approveListing = async (id) => {
+    if (isSupabaseConfigured) {
+      await supabase.from('products').update({ status: 'available' }).eq('id', id);
+    }
     setListings((currentListings) =>
       currentListings.map((listing) =>
         listing.id === id
@@ -275,28 +340,28 @@ function AdminDashboard({ onBack }) {
                 <div className="admin-stat-card">
                   <Users size={24} />
                   <span>Total Users</span>
-                  <strong>1,248</strong>
-                  <small>+12% this month</small>
+                  <strong>{users.length.toLocaleString('en-IN')}</strong>
+                  <small>{isSupabaseConfigured ? 'Synced from database' : '+12% this month'}</small>
                 </div>
 
                 <div className="admin-stat-card">
                   <ShoppingBag size={24} />
                   <span>Total Listings</span>
-                  <strong>856</strong>
-                  <small>64 pending approval</small>
+                  <strong>{listings.length.toLocaleString('en-IN')}</strong>
+                  <small>{listings.filter(l => l.status === 'Pending').length} pending approval</small>
                 </div>
 
                 <div className="admin-stat-card">
                   <IndianRupee size={24} />
                   <span>Total Revenue</span>
-                  <strong>₹84,520</strong>
-                  <small>Platform earnings</small>
+                  <strong>₹{((realOrders.length > 0 ? realOrders.reduce((acc, o) => acc + (Number(o.platform_fee) || 11), 0) : 84520)).toLocaleString('en-IN')}</strong>
+                  <small>Platform fees collected</small>
                 </div>
 
                 <div className="admin-stat-card">
                   <Truck size={24} />
                   <span>Active Orders</span>
-                  <strong>128</strong>
+                  <strong>{(realOrders.length > 0 ? realOrders.filter(o => !['completed', 'cancelled'].includes(o.status)).length : 128).toLocaleString('en-IN')}</strong>
                   <small>Currently in progress</small>
                 </div>
               </div>
@@ -369,9 +434,27 @@ function AdminDashboard({ onBack }) {
           {activeTab === 'orders' && (
             <div className="admin-panel">
               <h2>Order Monitoring</h2>
-              <p>Active orders: 128</p>
-              <p>Orders awaiting delivery: 42</p>
-              <p>Orders completed: 486</p>
+              {realOrders.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                  {realOrders.map(o => (
+                    <div className="admin-list-row" key={o.id}>
+                      <div>
+                        <strong>{o.order_number || o.id.substring(0, 8)}</strong>
+                        <small>{o.products?.title || 'Product'} · {formatPrice(o.total_paid)}</small>
+                      </div>
+                      <span className={`admin-status ${o.status?.replace(/_/g, '-')}`}>
+                        {o.status?.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <p>Active orders: 128</p>
+                  <p>Orders awaiting delivery: 42</p>
+                  <p>Orders completed: 486</p>
+                </>
+              )}
             </div>
           )}
 
@@ -390,19 +473,42 @@ function AdminDashboard({ onBack }) {
               <div className="admin-list-row">
                 <div>
                   <strong>Order #ET1024</strong>
-                  <small>Product condition dispute</small>
+                  <small>Product condition dispute · Lenovo ThinkPad</small>
                 </div>
 
                 <span className="admin-status pending">Under Review</span>
 
                 <button
                   className="admin-action-button"
-                  onClick={() => alert('Dispute details will open here.')}
+                  onClick={() => setViewingDispute(!viewingDispute)}
                 >
                   <Eye size={16} />
-                  View
+                  {viewingDispute ? 'Hide Details' : 'View Details'}
                 </button>
               </div>
+
+              {viewingDispute && (
+                <div style={{ padding: '16px 20px', background: '#f8faf9', borderTop: '1px solid #edf1ef', fontSize: '13px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '10px' }}>
+                    <div>
+                      <span style={{ color: '#64748b', fontSize: '11px', display: 'block' }}>Buyer Claim</span>
+                      <strong>Battery health is 68%, listing said 'Good condition'</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b', fontSize: '11px', display: 'block' }}>Seller Response</span>
+                      <span>Offered ₹1,500 battery credit or full return</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b', fontSize: '11px', display: 'block' }}>Escrow Status</span>
+                      <strong style={{ color: '#d97706' }}>₹18,000 Frozen in Escrow</strong>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button className="admin-action-button" onClick={() => setViewingDispute(false)}>Resolve: Approve Return</button>
+                    <button className="admin-action-button danger" onClick={() => setViewingDispute(false)}>Dismiss Claim</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -431,6 +537,28 @@ function AuthModal({ onClose, onAuthenticated }) {
     setLoading(true);
 
     try {
+      if (!isSupabaseConfigured) {
+        // Safe demo authentication mode when Supabase credentials are not configured
+        if (mode === 'signup' && !fullName.trim()) {
+          throw new Error('Please enter your full name.');
+        }
+        if (password.length < 6) {
+          throw new Error('Password must contain at least 6 characters.');
+        }
+        const mockUser = {
+          id: 'demo-' + (mode === 'signup' ? role : 'user') + '-' + Math.random().toString(36).substring(2, 8),
+          email: email.trim(),
+          user_metadata: {
+            full_name: fullName.trim() || email.split('@')[0],
+            phone: phone.trim() || '',
+            location: location.trim() || 'Patiala, Punjab',
+            role: (mode === 'signup' && (role === 'buyer' || role === 'seller')) ? role : 'buyer',
+          },
+        };
+        await onAuthenticated(mockUser);
+        return;
+      }
+
       if (mode === 'signup') {
         if (!fullName.trim()) throw new Error('Please enter your full name.');
         if (password.length < 6) {
@@ -650,15 +778,15 @@ function productPresentation(category = '') {
   return { icon: '♻️', color: 'indigo' };
 }
 
-function ListingModal({ profile, onClose, onCreated }) {
+function ListingModal({ profile, onClose, onCreated, editingProduct = null }) {
   const [form, setForm] = useState({
-    title: '',
-    category: 'Laptops',
-    price: '',
-    condition: 'Good',
-    location: profile?.location || '',
-    description: '',
-    specs: '',
+    title: editingProduct?.title || '',
+    category: editingProduct?.category || 'Laptops',
+    price: editingProduct?.price ? String(editingProduct.price) : '',
+    condition: editingProduct?.condition || 'Good',
+    location: editingProduct?.location || profile?.location || '',
+    description: editingProduct?.description || '',
+    specs: editingProduct?.specs || '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -682,7 +810,58 @@ function ListingModal({ profile, onClose, onCreated }) {
       return;
     }
 
+    if (form.title.trim().length < 3) {
+      setError('Product title must be at least 3 characters.');
+      return;
+    }
+
+    if (price > 10000000) {
+      setError('Price cannot exceed ₹1,00,00,000.');
+      return;
+    }
+
     setSaving(true);
+
+    if (!isSupabaseConfigured) {
+      const presentation = productPresentation(form.category);
+      if (editingProduct) {
+        const updatedProduct = {
+          ...editingProduct,
+          title: form.title.trim(),
+          category: form.category,
+          price,
+          condition: form.condition,
+          location: form.location.trim() || 'Patiala, Punjab',
+          description: form.description.trim() || 'Pre-owned electronic device ready for reuse.',
+          specs: form.specs.trim() || 'Specifications not provided',
+          icon: presentation.icon,
+          color: presentation.color,
+        };
+        setSaving(false);
+        onCreated(updatedProduct, true);
+        onClose();
+        return;
+      }
+      const newProduct = {
+        id: Date.now(),
+        seller_id: profile.id,
+        title: form.title.trim(),
+        category: form.category,
+        price,
+        condition: form.condition,
+        location: form.location.trim() || 'Patiala, Punjab',
+        description: form.description.trim() || 'Pre-owned electronic device ready for reuse.',
+        specs: form.specs.trim() || 'Specifications not provided',
+        status: 'available',
+        seller: profile.full_name || 'You (Seller)',
+        icon: presentation.icon,
+        color: presentation.color,
+      };
+      setSaving(false);
+      onCreated(newProduct, false);
+      onClose();
+      return;
+    }
 
     // Always get the currently authenticated Supabase user here.
     // This prevents an RLS mismatch between the loaded profile and auth.uid().
@@ -695,6 +874,41 @@ function ListingModal({ profile, onClose, onCreated }) {
     }
 
     const authenticatedUserId = authData.user.id;
+
+    if (editingProduct) {
+      const { data, error: updateError } = await supabase
+        .from('products')
+        .update({
+          title: form.title.trim(),
+          category: form.category,
+          price,
+          condition: form.condition,
+          location: form.location.trim() || null,
+          description: form.description.trim() || null,
+          specs: form.specs.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingProduct.id)
+        .eq('seller_id', authenticatedUserId)
+        .select('*, profiles(full_name)')
+        .single();
+
+      setSaving(false);
+      if (updateError) {
+        console.error('Product update failed:', updateError);
+        setError(updateError.message);
+        return;
+      }
+      const presentation = productPresentation(data.category);
+      onCreated({
+        ...data,
+        seller: data.profiles?.full_name || profile?.full_name || 'Seller',
+        icon: presentation.icon,
+        color: presentation.color,
+      }, true);
+      onClose();
+      return;
+    }
 
     const { data, error: insertError } = await supabase
       .from('products')
@@ -720,7 +934,7 @@ function ListingModal({ profile, onClose, onCreated }) {
       return;
     }
 
-    onCreated(data);
+    onCreated(data, false);
     onClose();
   };
 
@@ -732,9 +946,9 @@ function ListingModal({ profile, onClose, onCreated }) {
         </button>
         <div className="modal-content" style={{ paddingTop: 10 }}>
           <div className="section-kicker">SELL ON ECOTRACK</div>
-          <h2 style={{ marginBottom: 8 }}>Create a new listing</h2>
+          <h2 style={{ marginBottom: 8 }}>{editingProduct ? 'Edit product listing' : 'Create a new listing'}</h2>
           <p style={{ color: '#64748b', marginTop: 0 }}>
-            Add your unused electronics and make them available to buyers.
+            {editingProduct ? 'Update your device specs, condition, or asking price.' : 'Add your unused electronics and make them available to buyers.'}
           </p>
 
           <form onSubmit={submit}>
@@ -785,8 +999,8 @@ function ListingModal({ profile, onClose, onCreated }) {
             {error && <div style={{ background: '#fef2f2', color: '#b91c1c', padding: '11px 13px', borderRadius: 10, marginBottom: 14, fontSize: 14 }}>{error}</div>}
 
             <button className="primary-button modal-action" type="submit" disabled={saving} style={{ width: '100%', justifyContent: 'center' }}>
-              <Plus size={18} />
-              {saving ? 'Saving listing...' : 'Publish listing'}
+              {editingProduct ? <Check size={18} /> : <Plus size={18} />}
+              {saving ? 'Saving...' : editingProduct ? 'Save changes' : 'Publish listing'}
             </button>
           </form>
         </div>
@@ -863,7 +1077,7 @@ function MessagesCenter({ user, profile, initialProduct, onClose }) {
   }, [initialProduct?.id, user?.id]);
 
   useEffect(() => {
-    if (!active?.id) return;
+    if (!active?.id || !isSupabaseConfigured) return;
     const channel = supabase.channel(`ecotrack-conversation-${active.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${active.id}` }, payload => {
         if (payload.eventType === 'INSERT') setMessages(current => current.some(x => x.id === payload.new.id) ? current : [...current, payload.new]);
@@ -876,18 +1090,43 @@ function MessagesCenter({ user, profile, initialProduct, onClose }) {
   }, [active?.id]);
 
   const sendText = async () => {
-    const body = draft.trim(); if (!body || !active) return;
+    const body = draft.trim();
+    if (!body || !active) return;
+    setDraft(''); // optimistic clear for instant UX
     setBusy(true); setError('');
-    const { error: e } = await supabase.from('messages').insert({ conversation_id: active.id, sender_id: user.id, body });
-    if (e) setError(e.message); else { setDraft(''); await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', active.id); }
+    const { error: e } = await supabase
+      .from('messages')
+      .insert({ conversation_id: active.id, sender_id: user.id, body });
+    if (e) {
+      setError(e.message);
+      setDraft(body); // restore on error
+    } else {
+      await supabase
+        .from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', active.id);
+    }
     setBusy(false);
   };
 
   const submitOffer = async () => {
-    const n = Number(amount); if (!active || !Number.isFinite(n) || n <= 0) { setError('Enter a valid offer amount.'); return; }
+    const n = Number(amount);
+    if (!active || !Number.isFinite(n) || n <= 0) {
+      setError('Enter a valid offer amount (must be greater than 0).');
+      return;
+    }
     setBusy(true); setError('');
-    const { error: e } = await supabase.from('price_offers').insert({ conversation_id: active.id, sender_id: user.id, amount: n, status: 'pending' });
-    if (e) setError(e.message); else setAmount('');
+    const { error: e } = await supabase.from('price_offers').insert({
+      conversation_id: active.id,
+      sender_id: user.id,
+      amount: n,
+      status: 'pending',
+    });
+    if (e) setError(e.message);
+    else {
+      setAmount('');
+      await openConversation(active);
+    }
     setBusy(false);
   };
 
@@ -948,11 +1187,19 @@ function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [globalError, setGlobalError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [paymentDone, setPaymentDone] = useState(false);
   const [dbProducts, setDbProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [showListingModal, setShowListingModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
   const [showMessagesCenter, setShowMessagesCenter] = useState(false);
   const [messagesStartProduct, setMessagesStartProduct] = useState(null);
+  const [showOrdersPanel, setShowOrdersPanel] = useState(false);
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [sortBy, setSortBy] = useState('newest');
 
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [negotiatingProduct, setNegotiatingProduct] = useState(null);
@@ -971,6 +1218,9 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
+
+    // Enable smooth scrolling for anchor links
+    document.documentElement.style.scrollBehavior = 'smooth';
 
     const loadProfile = async (user) => {
       if (!user) {
@@ -999,8 +1249,11 @@ function App() {
 
     supabase.auth.getSession().then(async ({ data }) => {
       if (!mounted) return;
-      setSession(data.session);
-      await loadProfile(data.session?.user ?? null);
+      setSession(data?.session ?? null);
+      if (data?.session?.user) await loadProfile(data.session.user);
+      if (mounted) setAuthLoading(false);
+    }).catch((err) => {
+      console.warn('Session check fallback:', err);
       if (mounted) setAuthLoading(false);
     });
 
@@ -1017,17 +1270,29 @@ function App() {
     };
   }, []);
 
+  // Lock body scroll when mobile nav is open
+  useEffect(() => {
+    document.body.style.overflow = mobileOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [mobileOpen]);
+
   const loadProducts = async () => {
     setProductsLoading(true);
+    if (!isSupabaseConfigured) {
+      setDbProducts(demoProducts);
+      setProductsLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase
       .from('products')
       .select('*, profiles(full_name)')
       .eq('status', 'available')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Could not load products:', error);
-      setDbProducts([]);
+    if (error || !data || data.length === 0) {
+      if (error) console.warn('Supabase products query failed, using fallback catalog:', error.message);
+      setDbProducts(demoProducts);
     } else {
       const normalized = (data || []).map((item) => {
         const presentation = productPresentation(item.category);
@@ -1049,7 +1314,117 @@ function App() {
     loadProducts();
   }, []);
 
+  /** Load orders for the current user from the orders table */
+  const loadOrders = useCallback(async () => {
+    if (!isSupabaseConfigured || !session?.user) return;
+    setOrdersLoading(true);
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*, products(title, category)')
+      .or(`buyer_id.eq.${session.user.id},seller_id.eq.${session.user.id}`)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.warn('Could not load orders:', error.message);
+    } else {
+      setOrders(data || []);
+    }
+    setOrdersLoading(false);
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    if (session?.user && isSupabaseConfigured) loadOrders();
+  }, [session?.user?.id, loadOrders]);
+
+  /** Create an escrow order using the server-side RPC (prevents race conditions) */
+  const createEscrowOrder = async (product, agreedPrice, currentDeliveryFee) => {
+    if (!isSupabaseConfigured) {
+      // Demo mode: simulate order placement
+      setPaymentDone(true);
+      setNotice('Order initiated! Product marked for delivery escrow. (Demo mode — no real payment)');
+      return;
+    }
+    if (!session?.user) {
+      setGlobalError('Please log in to place an order.');
+      return;
+    }
+    try {
+      const { data, error } = await supabase.rpc('create_escrow_order', {
+        p_product_id: product.id,
+        p_agreed_price: agreedPrice,
+        p_delivery_fee: currentDeliveryFee,
+        p_delivery_address: profile?.location || null,
+      });
+      if (error) throw error;
+      setPaymentDone(true);
+      setNotice(`Order ${data.order_number} placed! Total: ${formatPrice(data.total_paid)}. Funds held in escrow.`);
+      // Refresh products so status changes from 'available' to 'reserved'
+      loadProducts();
+      loadOrders();
+    } catch (err) {
+      setGlobalError(err.message || 'Could not create order. Please try again.');
+    }
+  };
+
+  /** Delete a product listing (seller only) */
+  const deleteProduct = async (productId) => {
+    if (!isSupabaseConfigured) {
+      setDbProducts(current => current.filter(p => p.id !== productId));
+      setNotice('Listing removed. (Demo mode)');
+      return;
+    }
+    if (!session?.user) return;
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', productId)
+      .eq('seller_id', session.user.id);
+    if (error) {
+      setGlobalError(error.message);
+    } else {
+      setNotice('Listing deleted.');
+      loadProducts();
+    }
+  };
+
+  /** Mark order as buyer-approved upon delivery receipt */
+  const markBuyerApproved = async (order) => {
+    if (!isSupabaseConfigured || !session?.user) return;
+    if (order.buyer_id !== session.user.id) {
+      setGlobalError('Only the buyer can approve a delivery.');
+      return;
+    }
+    const { error } = await supabase
+      .from('orders')
+      .update({ buyer_approved: true, status: 'approved', updated_at: new Date().toISOString() })
+      .eq('id', order.id);
+    if (error) setGlobalError(error.message);
+    else {
+      setNotice('Delivery approved! Seller payout will be released.');
+      loadOrders();
+    }
+  };
+
   const handleAuthenticated = async (user) => {
+    if (!isSupabaseConfigured) {
+      const demoRole = user.user_metadata?.role;
+      // In demo mode, only allow 'buyer' or 'seller' - never 'admin'
+      const safeRole = (demoRole === 'buyer' || demoRole === 'seller') ? demoRole : 'buyer';
+      const mockProfile = {
+        id: user.id,
+        full_name: user.user_metadata?.full_name || 'Demo User',
+        email: user.email || 'user@example.com',
+        phone: user.user_metadata?.phone || '',
+        location: user.user_metadata?.location || 'Patiala, Punjab',
+        role: safeRole,
+      };
+      setProfile(mockProfile);
+      setSession({ user });
+      setViewerRole(mockProfile.role);
+      setShowAuthModal(false);
+      setNotice(`Signed in as ${mockProfile.full_name} (${mockProfile.role})`);
+      return;
+    }
+
     let { data: existingProfile, error } = await supabase
       .from('profiles')
       .select('*')
@@ -1086,28 +1461,42 @@ function App() {
   };
 
   const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      alert(error.message);
-      return;
+    try {
+      if (isSupabaseConfigured) {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+      }
+      setSession(null);
+      setProfile(null);
+      setShowAdminDashboard(false);
+      setShowOrdersPanel(false);
+      setOrders([]);
+      setViewerRole('buyer');
+      setNotice('Logged out successfully.');
+    } catch (err) {
+      setGlobalError(err.message || 'Error signing out.');
     }
-    setSession(null);
-    setProfile(null);
-    setShowAdminDashboard(false);
-    setViewerRole('buyer');
   };
 
   const filteredProducts = useMemo(() => {
-    return dbProducts.filter((product) => {
+    const list = dbProducts.filter((product) => {
       const matchesCategory =
         category === 'All' || product.category === category;
 
-      const text = `${product.title} ${product.location || ''} ${product.category} ${product.seller}`
+      const text = `${product.title || ''} ${product.location || ''} ${product.category || ''} ${product.seller || ''}`
         .toLowerCase();
 
       return matchesCategory && text.includes(query.toLowerCase());
     });
-  }, [dbProducts, query, category]);
+
+    if (sortBy === 'price_asc') {
+      return [...list].sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+    }
+    if (sortBy === 'price_desc') {
+      return [...list].sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+    }
+    return list;
+  }, [dbProducts, query, category, sortBy]);
 
   const toggleLike = (id) => {
     setLiked((current) =>
@@ -1134,10 +1523,18 @@ function App() {
 
   const startNegotiation = (product) => {
     closeDetails();
-    if (!session?.user) { setShowAuthModal(true); return; }
-    if (product.seller_id === session.user.id) { alert('You cannot negotiate on your own listing.'); return; }
-    setMessagesStartProduct(product);
-    setShowMessagesCenter(true);
+    if (isSupabaseConfigured && session?.user) {
+      if (product.seller_id === session.user.id) {
+        setGlobalError('You cannot negotiate on your own listing.');
+        return;
+      }
+      setMessagesStartProduct(product);
+      setShowMessagesCenter(true);
+    } else {
+      resetNegotiation();
+      setPaymentDone(false);
+      setNegotiatingProduct(product);
+    }
   };
 
   const closeNegotiation = () => {
@@ -1167,14 +1564,14 @@ function App() {
 
   const sendOffer = () => {
     if (viewerRole !== 'buyer') {
-      alert('Only the buyer can send a new price offer.');
+      setGlobalError('Only the buyer can send a new price offer. Switch your view to "Buyer" above.');
       return;
     }
 
     const amount = Number(offerAmount);
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      alert('Please enter a valid offer amount.');
+      setGlobalError('Please enter a valid offer amount (must be greater than ₹0).');
       return;
     }
 
@@ -1251,7 +1648,7 @@ function App() {
 
   const counterOffer = () => {
     if (viewerRole !== 'buyer') {
-      alert('Only the buyer can request a counteroffer.');
+      setGlobalError('Switch to "Buyer" view above to request a counteroffer.');
       return;
     }
 
@@ -1306,6 +1703,20 @@ function App() {
     ]);
   };
 
+  const handleSellClick = () => {
+    setMobileOpen(false);
+    if (!session) {
+      setShowAuthModal(true);
+      return;
+    }
+    if (profile?.role === 'buyer') {
+      setGlobalError('Your current account is registered as a Buyer. To list items for sale, please sign in with or register a Seller account.');
+      return;
+    }
+    setEditingProduct(null);
+    setShowListingModal(true);
+  };
+
   if (authLoading) {
     return (
       <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', fontFamily: 'inherit' }}>
@@ -1318,7 +1729,12 @@ function App() {
   }
 
   // Show the admin dashboard as a separate full-screen view.
+  // Guard: only admin-role profiles may access this.
   if (showAdminDashboard) {
+    if (!session || !profile || profile.role !== 'admin') {
+      setShowAdminDashboard(false);
+      return null;
+    }
     return (
       <AdminDashboard
         onBack={() => setShowAdminDashboard(false)}
@@ -1330,11 +1746,16 @@ function App() {
   const buyerDeliveryShare = deliveryFee / 2;
   const platformFee = 11;
   const buyerTotal = paymentAmount + buyerDeliveryShare + platformFee;
-  const sellerPayout =
-    paymentAmount - buyerDeliveryShare - platformFee;
+  const sellerPayout = Math.max(0,
+    paymentAmount - buyerDeliveryShare - platformFee
+  );
+  const negativePayout = (paymentAmount - buyerDeliveryShare - platformFee) < 0;
 
   return (
     <div className="app-shell">
+      {/* Accessibility: skip to main content */}
+      <a className="skip-link" href="#marketplace">Skip to marketplace</a>
+
       {/* NAVBAR */}
       <header className="navbar">
         <a className="brand" href="#top">
@@ -1365,31 +1786,27 @@ function App() {
             Our impact
           </a>
           {session && <button className="messages-nav-button" type="button" onClick={() => { setMobileOpen(false); setMessagesStartProduct(null); setShowMessagesCenter(true); }}><MessageCircle size={17}/> Messages</button>}
+          {session && <button className="messages-nav-button" type="button" onClick={() => { setMobileOpen(false); setShowOrdersPanel(true); loadOrders(); }}><ShoppingCart size={17}/> Orders</button>}
           <button
             className="nav-sell"
             type="button"
-            onClick={() => {
-              setMobileOpen(false);
-              if (!session) {
-                setShowAuthModal(true);
-                return;
-              }
-              setShowListingModal(true);
-            }}
+            onClick={handleSellClick}
           >
             <Plus size={17} />
             Sell an item
           </button>
-          <button
-            className="admin-nav-button"
-            onClick={() => {
-              setMobileOpen(false);
-              setShowAdminDashboard(true);
-            }}
-          >
-            <LayoutDashboard size={17} />
-            Admin
-          </button>
+          {session && profile?.role === 'admin' && (
+            <button
+              className="admin-nav-button"
+              onClick={() => {
+                setMobileOpen(false);
+                setShowAdminDashboard(true);
+              }}
+            >
+              <LayoutDashboard size={17} />
+              Admin
+            </button>
+          )}
 
           {session ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1398,6 +1815,7 @@ function App() {
                 {profile?.full_name || session.user?.email?.split('@')[0] || 'Account'}
               </span>
               <button className="login-button" onClick={handleLogout}>
+                <LogOut size={15} />
                 Log out
               </button>
             </div>
@@ -1409,6 +1827,26 @@ function App() {
           )}
         </nav>
       </header>
+
+      {!isSupabaseConfigured && (
+        <div className="demo-banner">
+          <span>⚡ <strong>Interactive Preview Mode:</strong> Running with local demo catalog &amp; in-memory simulation. Add credentials to <code>.env.local</code> to connect live Supabase backend.</span>
+        </div>
+      )}
+
+      {globalError && (
+        <div className="alert error">
+          <span>{globalError}</span>
+          <button onClick={() => setGlobalError('')} aria-label="Dismiss error"><X size={16} /></button>
+        </div>
+      )}
+
+      {notice && (
+        <div className="alert success">
+          <span>{notice}</span>
+          <button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={16} /></button>
+        </div>
+      )}
 
       <main id="top">
         {/* HERO */}
@@ -1441,10 +1879,7 @@ function App() {
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => {
-                  if (!session) setShowAuthModal(true);
-                  else setShowListingModal(true);
-                }}
+                onClick={handleSellClick}
               >
                 <Plus size={18} />
                 List your e-waste
@@ -1564,6 +1999,19 @@ function App() {
                   {item}
                 </button>
               ))}
+            </div>
+
+            <div className="sort-box">
+              <select
+                className="sort-select"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                aria-label="Sort listings"
+              >
+                <option value="newest">Sort: Featured</option>
+                <option value="price_asc">Price: Low to High</option>
+                <option value="price_desc">Price: High to Low</option>
+              </select>
             </div>
           </div>
 
@@ -1695,13 +2143,7 @@ function App() {
           <button
             className="primary-button"
             type="button"
-            onClick={() => {
-              if (!session) {
-                setShowAuthModal(true);
-                return;
-              }
-              setShowListingModal(true);
-            }}
+            onClick={handleSellClick}
           >
             Start selling
             <ArrowRight size={18} />
@@ -1767,13 +2209,45 @@ function App() {
                   {selectedProduct.description}
                 </p>
 
-                <button
-                  className="primary-button modal-action"
-                  onClick={() => startNegotiation(selectedProduct)}
-                >
-                  <MessageCircle size={18} />
-                  Start Negotiation
-                </button>
+                {/* Buyer action: Start Negotiation */}
+                {(!session || !profile || selectedProduct.seller_id !== profile.id) ? (
+                  <button
+                    className="primary-button modal-action"
+                    onClick={() => startNegotiation(selectedProduct)}
+                  >
+                    <MessageCircle size={18} />
+                    Start Negotiation
+                  </button>
+                ) : (
+                  /* Seller controls for own listing: Edit and Delete */
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                    <button
+                      className="primary-button modal-action"
+                      onClick={() => {
+                        const target = selectedProduct;
+                        closeDetails();
+                        setEditingProduct(target);
+                        setShowListingModal(true);
+                      }}
+                    >
+                      <Plus size={16} />
+                      Edit this listing
+                    </button>
+                    <button
+                      className="secondary-button modal-action"
+                      style={{ width: '100%', justifyContent: 'center', color: '#dc2626', borderColor: '#fecaca' }}
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to delete this listing?')) {
+                          deleteProduct(selectedProduct.id);
+                          closeDetails();
+                        }
+                      }}
+                    >
+                      <Trash2 size={16} />
+                      Delete this listing
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2134,14 +2608,15 @@ function App() {
                           id="delivery-fee"
                           type="number"
                           min="0"
+                          max="5000"
                           value={deliveryFee}
                           onChange={(e) =>
-                            setDeliveryFee(Math.max(0, Number(e.target.value)))
+                            setDeliveryFee(clamp(Math.round(Number(e.target.value) || 0), 0, 5000))
                           }
                         />
                       </div>
                       <small>
-                        The buyer pays half of the delivery fee.
+                        The buyer pays half of the delivery fee (capped at ₹5,000).
                       </small>
                     </div>
 
@@ -2159,19 +2634,33 @@ function App() {
                         Includes deduction of half the delivery fee and ₹11
                         platform fee, as specified in your current prototype.
                       </small>
+                      {negativePayout && (
+                        <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <AlertTriangle size={14} />
+                          Warning: Product price is too low to cover fees. Seller payout is ₹0.
+                        </div>
+                      )}
                     </div>
 
-                    <button
-                      className="primary-button modal-action"
-                      onClick={() =>
-                        alert(
-                          'Payment gateway integration will be added in a future phase.'
-                        )
-                      }
-                    >
-                      Proceed to payment
-                      <ArrowRight size={18} />
-                    </button>
+                    {paymentDone ? (
+                      <div style={{ textAlign: 'center', padding: '16px 0', color: '#16a34a' }}>
+                        <CheckCircle size={36} style={{ margin: '0 auto 8px', color: '#16a34a' }} />
+                        <h3 style={{ margin: '0 0 6px', color: '#15803d' }}>Order Placed Successfully!</h3>
+                        <p style={{ margin: 0, fontSize: 13, color: '#4b5563' }}>
+                          Delivery order initiated. Funds held securely in escrow until received & approved.
+                        </p>
+                      </div>
+                    ) : (
+                      <button
+                        className="primary-button modal-action"
+                        onClick={() => {
+                          createEscrowOrder(negotiatingProduct, finalPrice, deliveryFee);
+                        }}
+                      >
+                        Confirm & Place Order
+                        <ArrowRight size={18} />
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -2183,12 +2672,122 @@ function App() {
       {showListingModal && session && profile && (
         <ListingModal
           profile={profile}
-          onClose={() => setShowListingModal(false)}
-          onCreated={() => loadProducts()}
+          editingProduct={editingProduct}
+          onClose={() => {
+            setShowListingModal(false);
+            setEditingProduct(null);
+          }}
+          onCreated={(savedProduct, isEdit) => {
+            if (isEdit && savedProduct) {
+              setDbProducts((current) =>
+                current.map((p) => (p.id === savedProduct.id ? { ...p, ...savedProduct } : p))
+              );
+              setNotice(`Listing "${savedProduct.title}" updated successfully!`);
+            } else if (savedProduct) {
+              setDbProducts((current) => [savedProduct, ...current]);
+              setNotice(`Listing "${savedProduct.title}" created successfully!`);
+            } else {
+              loadProducts();
+            }
+            setEditingProduct(null);
+          }}
         />
       )}
 
       {showMessagesCenter && session?.user && profile && <MessagesCenter user={session.user} profile={profile} initialProduct={messagesStartProduct} onClose={() => { setShowMessagesCenter(false); setMessagesStartProduct(null); }} />}
+
+      {/* ORDERS PANEL */}
+      {showOrdersPanel && session && (
+        <div className="messages-overlay">
+          <section className="messages-center">
+            <header className="messages-topbar">
+              <div>
+                <span className="messages-kicker">ECOTRACK ORDERS</span>
+                <h2><ShoppingCart size={22}/> My Orders</h2>
+              </div>
+              <button className="chat-close" onClick={() => setShowOrdersPanel(false)} aria-label="Close orders"><X/></button>
+            </header>
+            <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+              {ordersLoading ? (
+                <p style={{ textAlign: 'center', color: '#64748b', padding: '40px 0' }}>Loading orders…</p>
+              ) : !isSupabaseConfigured ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b' }}>
+                  <ShoppingCart size={48} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+                  <h3 style={{ margin: '0 0 6px', color: '#334155' }}>Orders require database</h3>
+                  <p style={{ fontSize: 13 }}>Connect Supabase in <code>.env.local</code> to use the orders system. Demo mode uses simulated order placement only.</p>
+                </div>
+              ) : orders.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b' }}>
+                  <Package size={48} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+                  <h3 style={{ margin: '0 0 6px', color: '#334155' }}>No orders yet</h3>
+                  <p style={{ fontSize: 13 }}>Orders will appear here after you place or receive one.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {orders.map(order => {
+                    const isBuyer = order.buyer_id === session.user.id;
+                    const statusColors = {
+                      awaiting_payment: '#d97706',
+                      escrow_held: '#2563eb',
+                      shipped: '#7c3aed',
+                      delivered: '#059669',
+                      approved: '#16a34a',
+                      completed: '#16a34a',
+                      cancelled: '#dc2626',
+                      disputed: '#dc2626',
+                    };
+                    return (
+                      <div key={order.id} style={{
+                        background: '#fff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 14,
+                        padding: '16px 18px',
+                        fontSize: 14,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                          <div>
+                            <strong style={{ fontSize: 15 }}>{order.products?.title || 'Product'}</strong>
+                            <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>
+                              {order.order_number} · {isBuyer ? 'You are the buyer' : 'You are the seller'}
+                            </div>
+                          </div>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '3px 10px',
+                            borderRadius: 20,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: '#fff',
+                            background: statusColors[order.status] || '#64748b',
+                            textTransform: 'capitalize',
+                          }}>
+                            {order.status?.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 13, color: '#475569' }}>
+                          <div><small style={{ color: '#94a3b8', display: 'block' }}>Total paid</small><strong>{formatPrice(order.total_paid)}</strong></div>
+                          <div><small style={{ color: '#94a3b8', display: 'block' }}>Seller payout</small><strong>{formatPrice(order.seller_payout)}</strong></div>
+                          <div><small style={{ color: '#94a3b8', display: 'block' }}>Platform fee</small><strong>{formatPrice(order.platform_fee)}</strong></div>
+                        </div>
+                        {isBuyer && order.status === 'delivered' && !order.buyer_approved && (
+                          <button
+                            className="primary-button"
+                            style={{ marginTop: 12, width: '100%', justifyContent: 'center', fontSize: 13 }}
+                            onClick={() => markBuyerApproved(order)}
+                          >
+                            <CheckCircle size={16} />
+                            Approve Delivery & Release Payout
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {showAuthModal && !authLoading && (
         <AuthModal
@@ -2199,17 +2798,24 @@ function App() {
 
       {/* FOOTER */}
       <footer>
-        <a className="brand" href="#top">
-          <span className="brand-mark">
-            <Recycle size={20} />
-          </span>
-          <span>
-            Eco<span className="brand-accent">Track</span>
-          </span>
-        </a>
-
+        <div className="footer-top">
+          <a className="brand" href="#top">
+            <span className="brand-mark">
+              <Recycle size={20} />
+            </span>
+            <span>
+              Eco<span className="brand-accent">Track</span>
+            </span>
+          </a>
+          <nav className="footer-links">
+            <a href="#marketplace">Marketplace</a>
+            <a href="#how-it-works">How it works</a>
+            <a href="#impact">Impact</a>
+            <a href="#sell">Sell</a>
+          </nav>
+        </div>
         <p>Building a more circular future, one device at a time.</p>
-        <span>© 2026 EcoTrack</span>
+        <span>© 2026 EcoTrack · Sustainable Electronics Marketplace</span>
       </footer>
     </div>
   );
